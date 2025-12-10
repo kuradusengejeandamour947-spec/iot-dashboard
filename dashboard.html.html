@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IoT Room Temperature Dashboard</title>
+  <style>
+    :root{
+      --bg:#0f1724; /* deep navy */
+      --card:#0b1220;
+      --muted:#9aa7b2;
+      --accent:#1fb6ff;
+      --accent-2:#7ee787;
+      --danger:#ff6b6b;
+      --glass: rgba(255,255,255,0.04);
+      --glass-2: rgba(255,255,255,0.02);
+      --radius:14px;
+      font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      background: linear-gradient(180deg,var(--bg), #071226 80%);
+      color:#e6eef3;
+      -webkit-font-smoothing:antialiased;
+      padding:28px;
+      font-size:15px;
+    }
+
+    /* Layout */
+    .container{
+      max-width:1200px;
+      margin:0 auto;
+      display:grid;
+      grid-template-columns: 1fr 2fr 320px;
+      gap:20px;
+      align-items:start;
+    }
+
+    header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+    header h1{font-size:20px;margin:0}
+    .status{display:flex;gap:12px;align-items:center}
+    .dot{width:12px;height:12px;border-radius:50%}
+    .online{background:var(--accent-2);box-shadow:0 0 8px rgba(126,231,135,0.12)}
+    .offline{background:var(--danger)}
+
+    /* Card styles */
+    .card{
+      background: linear-gradient(180deg,var(--card), rgba(10,16,26,0.6));
+      border-radius:var(--radius);
+      padding:18px;
+      box-shadow: 0 6px 18px rgba(2,6,12,0.6);
+      border:1px solid var(--glass);
+    }
+
+    .temp-card{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+    .temp-reading{display:flex;align-items:center;gap:16px}
+    .temp-value{font-size:48px;font-weight:600}
+    .temp-unit{font-size:16px;color:var(--muted)}
+    .temp-meta{display:flex;gap:12px;flex-wrap:wrap}
+    .chip{background:var(--glass-2);padding:8px 10px;border-radius:10px;color:var(--muted);font-weight:600}
+
+    /* Graph card */
+    .graph-card{height:320px;display:flex;flex-direction:column}
+    .chart-wrap{flex:1;padding:8px 4px}
+    svg{width:100%;height:100%}
+
+    /* Right column */
+    .info-list{display:flex;flex-direction:column;gap:8px}
+    .info-row{display:flex;justify-content:space-between;color:var(--muted);padding:8px 10px;border-radius:10px;background:linear-gradient(180deg,transparent, rgba(255,255,255,0.01))}
+
+    /* Alerts */
+    .alerts{margin-top:14px}
+    .alert{display:flex;gap:12px;align-items:center;padding:10px;border-radius:10px;background:linear-gradient(90deg, rgba(255,255,255,0.01), transparent)}
+    .alert .time{color:var(--muted);font-size:13px}
+
+    /* Controls */
+    .controls{display:flex;gap:8px;margin-top:12px}
+    button{background:transparent;border:1px solid var(--glass);color:inherit;padding:8px 12px;border-radius:10px;cursor:pointer}
+    button.primary{background:linear-gradient(90deg,var(--accent),#3aa7ff);border:none;color:#012;box-shadow:0 8px 18px rgba(31,182,255,0.08)}
+
+    footer{margin-top:20px;color:var(--muted);font-size:13px;text-align:center}
+
+    /* Responsive */
+    @media (max-width:980px){
+      .container{grid-template-columns:1fr;}
+      .graph-card{height:260px}
+    }
+
+    /* Tiny utilities */
+    .flex{display:flex;align-items:center}
+    .space{flex:1}
+    .muted{color:var(--muted)}
+    .danger{color:var(--danger)}
+    .accent{color:var(--accent)}
+
+    /* Threshold modal (simple) */
+    .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(2,6,12,0.6)}
+    .modal.open{display:flex}
+    .modal .box{width:360px;background:var(--card);padding:18px;border-radius:12px}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    input[type=number]{width:100%;padding:10px;border-radius:8px;border:1px solid var(--glass);background:transparent;color:inherit}
+
+    /* small screens tweaks */
+    @media (max-width:480px){
+      .temp-value{font-size:36px}
+      .temp-card{align-items:flex-start}
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>IoT Room Temperature Monitor</h1>
+    <div class="status">
+      <div class="dot online" id="sys-dot" title="System online"></div>
+      <div class="muted" id="clock">--:--:--</div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Left: current temp card -->
+    <section class="card temp-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+        <div>
+          <div style="font-size:13px;color:var(--muted);font-weight:700">CURRENT TEMPERATURE</div>
+          <div class="temp-reading">
+            <div class="temp-value" id="tempValue">--</div>
+            <div class="temp-unit">°C</div>
+          </div>
+          <div class="temp-meta">
+            <div class="chip" id="statusChip">--</div>
+            <div class="chip" id="batteryChip">Battery: --</div>
+            <div class="chip" id="humidityChip">Humidity: --</div>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="muted" style="font-size:13px">Room: Lab A</div>
+          <div class="muted" style="font-size:12px">Device ID: TEMP-102</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="refreshBtn">Refresh</button>
+        <button id="exportBtn">Export CSV</button>
+        <button id="thresholdBtn">Set Thresholds</button>
+        <div class="space"></div>
+        <select id="timeRange">
+          <option value="1">Last 1 hour</option>
+          <option value="24" selected>Last 24 hours</option>
+          <option value="168">Last 7 days</option>
+        </select>
+      </div>
+
+      <div class="alerts">
+        <h3 style="margin:8px 0 6px 0;font-size:14px">Notifications</h3>
+        <div id="alertsList">
+          <div class="alert card">
+            <div style="width:10px;height:10px;border-radius:50%;background:var(--accent)"></div>
+            <div>
+              <div style="font-weight:700">System initialized</div>
+              <div class="time muted">--</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Middle: graph -->
+    <section class="card graph-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-weight:700">Temperature Trend</div>
+        <div class="muted">Range: <span id="rangeLabel">24h</span></div>
+      </div>
+      <div class="chart-wrap" aria-hidden="false">
+        <svg id="chart" viewBox="0 0 600 300" preserveAspectRatio="none" role="img" aria-label="Temperature trend chart">
+          <!-- axes and path drawn by JS -->
+          <defs>
+            <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-opacity="0.12" stop-color="#1fb6ff" />
+              <stop offset="100%" stop-opacity="0" stop-color="#1fb6ff" />
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="100%" height="100%" fill="transparent"></rect>
+          <g id="grid"></g>
+          <g id="pathGroup"></g>
+          <g id="labels"></g>
+        </svg>
+      </div>
+
+      <div style="display:flex;gap:12px;margin-top:8px;align-items:center">
+        <div class="chip">Avg: <span id="avgTemp">--</span>°C</div>
+        <div class="chip">Min: <span id="minTemp">--</span>°C</div>
+        <div class="chip">Max: <span id="maxTemp">--</span>°C</div>
+      </div>
+    </section>
+
+    <!-- Right: device info -->
+    <aside>
+      <div class="card info-list">
+        <div style="font-weight:700">Room Details</div>
+        <div class="info-row"><div>Location</div><div class="muted">2nd Floor - West Wing</div></div>
+        <div class="info-row"><div>Device ID</div><div class="muted">TEMP-102</div></div>
+        <div class="info-row"><div>Model</div><div class="muted">T-200</div></div>
+        <div class="info-row"><div>Last Seen</div><div class="muted" id="lastSeen">--</div></div>
+        <div class="info-row"><div>Firmware</div><div class="muted">v1.3.4</div></div>
+
+        <div style="margin-top:12px;font-weight:700">Controls</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="rebootBtn">Reboot Device</button>
+          <button id="pingBtn">Ping</button>
+        </div>
+
+        <div style="margin-top:12px;font-weight:700">Live Status</div>
+        <div class="info-row"><div>Connectivity</div><div class="muted" id="connStatus">Online</div></div>
+        <div class="info-row"><div>Battery</div><div class="muted" id="connBattery">--</div></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>Demo dashboard — single-file HTML/CSS/JS. Save as <strong>dashboard.html</strong> and open in a browser.</footer>
+
+  <!-- Threshold modal -->
+  <div class="modal" id="modal">
+    <div class="box">
+      <h3 style="margin-top:0">Set Temperature Thresholds</h3>
+      <label>Warning threshold (°C)</label>
+      <input type="number" id="warnThresh" value="28" />
+      <label style="margin-top:10px">Critical threshold (°C)</label>
+      <input type="number" id="critThresh" value="30" />
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+        <button id="closeModal">Cancel</button>
+        <button class="primary" id="saveThresh">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Simple demo logic: simulates data and draws an SVG chart.
+    const state = {
+      data: [], // {ts, temp}
+      rangeHours: 24,
+      warn: 28,
+      crit: 30,
+      battery: 87,
+      humidity: 45
+    }
+
+    const $temp = document.getElementById('tempValue');
+    const $statusChip = document.getElementById('statusChip');
+    const $batteryChip = document.getElementById('batteryChip');
+    const $humidityChip = document.getElementById('humidityChip');
+    const $avg = document.getElementById('avgTemp');
+    const $min = document.getElementById('minTemp');
+    const $max = document.getElementById('maxTemp');
+    const $alerts = document.getElementById('alertsList');
+    const $clock = document.getElementById('clock');
+    const $lastSeen = document.getElementById('lastSeen');
+    const $connBattery = document.getElementById('connBattery');
+    const $connStatus = document.getElementById('connStatus');
+    const $rangeLabel = document.getElementById('rangeLabel');
+
+    // Populate initial data points for the selected range (1 point per 10 min)
+    function seedData(hours){
+      const points = Math.max(6, Math.floor(hours * 6));
+      const now = Date.now();
+      state.data = [];
+      for(let i=points-1;i>=0;i--){
+        const ts = now - i * 10*60*1000; // 10 minutes interval
+        const base = 24 + Math.sin(i/6) * 2 + (Math.random()-0.5)*0.8;
+        state.data.push({ts, temp: Number(base.toFixed(2))});
+      }
+    }
+
+    function formatTime(ts){
+      const d = new Date(ts);
+      return d.toLocaleString();
+    }
+
+    function nowString(){
+      return new Date().toLocaleTimeString();
+    }
+
+    function updateClock(){
+      $clock.textContent = nowString();
+      setTimeout(updateClock, 1000);
+    }
+
+    function computeStats(){
+      const temps = state.data.map(p=>p.temp);
+      const avg = (temps.reduce((s,v)=>s+v,0)/temps.length)||0;
+      const min = Math.min(...temps);
+      const max = Math.max(...temps);
+      $avg.textContent = avg.toFixed(2);
+      $min.textContent = min.toFixed(2);
+      $max.textContent = max.toFixed(2);
+      return {avg,min,max};
+    }
+
+    // Update main cards
+    function updateSummary(){
+      const last = state.data[state.data.length-1];
+      if(!last) return;
+      $temp.textContent = last.temp.toFixed(1);
+      $batteryChip.textContent = `Battery: ${state.battery}%`;
+      $humidityChip.textContent = `Humidity: ${state.humidity}%`;
+      $lastSeen.textContent = formatTime(last.ts);
+      $connBattery.textContent = state.battery + '%';
+      $connStatus.textContent = 'Online';
+
+      if(last.temp >= state.crit){
+        $statusChip.textContent = 'Critical';
+        $statusChip.style.background = 'linear-gradient(90deg,var(--danger),#ff4b4b)';
+        addAlert('Critical temperature reached: '+ last.temp.toFixed(1) + '°C', 'danger');
+      } else if(last.temp >= state.warn){
+        $statusChip.textContent = 'Warning';
+        $statusChip.style.background = 'linear-gradient(90deg,var(--accent),#ffd36b)';
+        addAlert('Warning temperature: '+ last.temp.toFixed(1) + '°C', 'warn');
+      } else {
+        $statusChip.textContent = 'Normal';
+        $statusChip.style.background = 'transparent';
+      }
+    }
+
+    function addAlert(text, level){
+      const el = document.createElement('div');
+      el.className = 'alert card';
+      el.innerHTML = `<div style="width:10px;height:10px;border-radius:50%;background:${level==='danger'? 'var(--danger)':'var(--accent)'}"></div>
+        <div>
+          <div style="font-weight:700">${text}</div>
+          <div class="time muted">${formatTime(Date.now())}</div>
+        </div>`;
+      $alerts.prepend(el);
+      // remove after some time to keep list tidy
+      setTimeout(()=>{ if(el.parentNode) el.parentNode.removeChild(el)}, 60_000);
+    }
+
+    // Draw simple line chart into SVG
+    function drawChart(){
+      const svg = document.getElementById('chart');
+      const w = 600, h = 300; // viewBox dimensions
+      const padding = {l:50,r:20,t:20,b:40};
+      const gGrid = document.getElementById('grid');
+      const gPath = document.getElementById('pathGroup');
+      const gLabels = document.getElementById('labels');
+      gGrid.innerHTML=''; gPath.innerHTML=''; gLabels.innerHTML='';
+      if(state.data.length===0) return;
+      const temps = state.data.map(p=>p.temp);
+      const min = Math.floor(Math.min(...temps) - 1);
+      const max = Math.ceil(Math.max(...temps) + 1);
+
+      // grid lines + y labels
+      const lines = 5;
+      for(let i=0;i<=lines;i++){
+        const y = padding.t + (h - padding.t - padding.b) * (i/lines);
+        const val = (max - ( (max-min) * (i/lines) )).toFixed(0);
+        const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+        line.setAttribute('x1',padding.l); line.setAttribute('x2',w-padding.r);
+        line.setAttribute('y1',y); line.setAttribute('y2',y);
+        line.setAttribute('stroke','rgba(255,255,255,0.03)'); line.setAttribute('stroke-width','1');
+        gGrid.appendChild(line);
+        const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
+        txt.setAttribute('x',10); txt.setAttribute('y',y+4); txt.setAttribute('fill','var(--muted)'); txt.setAttribute('font-size',12);
+        txt.textContent = val + '°C';
+        gLabels.appendChild(txt);
+      }
+
+      // compute points
+      const pts = state.data.map((p, i)=>{
+        const x = padding.l + ( (w - padding.l - padding.r) * (i/(state.data.length-1)) );
+        const y = padding.t + ( (h - padding.t - padding.b) * ( (max - p.temp) / (max-min) ) );
+        return [x,y,p.temp];
+      });
+
+      // build path
+      const pathD = pts.map((p,i)=> (i===0? `M ${p[0]} ${p[1]}`: `L ${p[0]} ${p[1]}`)).join(' ');
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d',pathD); path.setAttribute('fill','none'); path.setAttribute('stroke','url(#g1)'); path.setAttribute('stroke-width','2');
+      gPath.appendChild(path);
+
+      // area under curve
+      const areaD = pathD + ` L ${w-padding.r} ${h-padding.b} L ${padding.l} ${h-padding.b} Z`;
+      const area = document.createElementNS('http://www.w3.org/2000/svg','path');
+      area.setAttribute('d',areaD); area.setAttribute('fill','url(#g1)'); area.setAttribute('opacity', '0.9');
+      gPath.insertBefore(area, path);
+
+      // points and hover labels
+      pts.forEach(p=>{
+        const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r',3);
+        c.setAttribute('fill','white'); c.setAttribute('opacity',0.9);
+        gPath.appendChild(c);
+      });
+
+      // x labels (3 labels)
+      const labelsCount = 3;
+      for(let i=0;i<labelsCount;i++){
+        const idx = Math.floor(i*(state.data.length-1)/(labelsCount-1));
+        const p = state.data[idx];
+        const x = padding.l + ( (w - padding.l - padding.r) * (idx/(state.data.length-1)) );
+        const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
+        txt.setAttribute('x', x); txt.setAttribute('y', h - 8); txt.setAttribute('font-size',12); txt.setAttribute('fill','var(--muted)'); txt.setAttribute('text-anchor','middle');
+        const d = new Date(p.ts);
+        txt.textContent = d.getHours()+':'+String(d.getMinutes()).padStart(2,'0');
+        gLabels.appendChild(txt);
+      }
+    }
+
+    // Simulate incoming reading (called periodically)
+    function tick(){
+      // last value is base
+      const last = state.data[state.data.length-1];
+      const base = last ? last.temp : 24;
+      // small random walk
+      let next = base + (Math.random()-0.5) * 0.6;
+      // occasionally nudge up or down
+      if(Math.random() < 0.03) next += (Math.random()>0.5?1:-1) * (1+Math.random()*2);
+      next = Number(next.toFixed(2));
+      state.data.push({ts: Date.now(), temp: next});
+      // keep window length
+      const maxPoints = Math.max(6, Math.floor(state.rangeHours * 6));
+      while(state.data.length > maxPoints) state.data.shift();
+
+      computeStats();
+      updateSummary();
+      drawChart();
+    }
+
+    // UI hooks
+    document.getElementById('timeRange').addEventListener('change', e=>{
+      state.rangeHours = Number(e.target.value);
+      document.getElementById('rangeLabel').textContent = state.rangeHours === 1 ? '1h' : (state.rangeHours === 24 ? '24h' : '7d');
+      seedData(state.rangeHours);
+      drawChart();
+      computeStats();
+      updateSummary();
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', ()=>{ seedData(state.rangeHours); drawChart(); computeStats(); updateSummary(); addAlert('Refreshed data', 'info'); });
+    document.getElementById('exportBtn').addEventListener('click', ()=>{ exportCSV(); });
+    document.getElementById('thresholdBtn').addEventListener('click', ()=>{ document.getElementById('modal').classList.add('open'); });
+    document.getElementById('closeModal').addEventListener('click', ()=>{ document.getElementById('modal').classList.remove('open'); });
+    document.getElementById('saveThresh').addEventListener('click', ()=>{
+      const w = Number(document.getElementById('warnThresh').value);
+      const c = Number(document.getElementById('critThresh').value);
+      state.warn = w; state.crit = c;
+      document.getElementById('modal').classList.remove('open');
+      addAlert(`Thresholds saved: warn ${w}°C / crit ${c}°C`, 'info');
+    });
+
+    document.getElementById('rebootBtn').addEventListener('click', ()=>{ addAlert('Reboot command sent to device', 'info'); });
+    document.getElementById('pingBtn').addEventListener('click', ()=>{ addAlert('Ping successful (latency 72ms)', 'info'); });
+
+    function exportCSV(){
+      const rows = [['timestamp','temperature_c']];
+      state.data.forEach(p=>rows.push([new Date(p.ts).toISOString(), p.temp]));
+      const csv = rows.map(r=>r.join(',')).join('\n');
+      const blob = new Blob([csv],{type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download='temperature.csv'; a.click(); URL.revokeObjectURL(url);
+    }
+
+    // seed then animate
+    seedData(state.rangeHours);
+    computeStats();
+    drawChart();
+    updateSummary();
+    updateClock();
+
+    // periodic tick every 8 seconds to simulate device pushing
+    setInterval(tick, 8000);
+
+    // initial small alert
+    setTimeout(()=>addAlert('Device connected', 'info'), 800);
+  </script>
+</body>
+</html>
