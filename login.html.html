@@ -1,95 +1,138 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>IoT Secure Login</title>
-<style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IoT Dashboard Login</title>
+  <style>
     body {
-        font-family: Arial, sans-serif;
-        background: linear-gradient(135deg, #0d1b2a, #1b263b);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        margin: 0;
-        color: white;
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background: #f1f5f9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
     }
 
-    .login-container {
-        background: rgba(255, 255, 255, 0.1);
-        padding: 30px;
-        border-radius: 12px;
-        box-shadow: 0 0 15px rgba(0,0,0,0.4);
-        width: 320px;
-        text-align: center;
-        backdrop-filter: blur(10px);
+    .login-container, .setup-container {
+      width: 350px;
+      background: #ffffff;
+      padding: 30px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      border-radius: 12px;
+      text-align: center;
     }
 
-    h1 {
-        margin-bottom: 20px;
-        font-size: 22px;
-        font-weight: bold;
-        color: #e0eaff;
+    h2 {
+      margin-bottom: 20px;
+      color: #111827;
     }
 
     input {
-        width: 90%;
-        padding: 12px;
-        margin-top: 15px;
-        border: none;
-        border-radius: 8px;
-        outline: none;
+      width: 100%;
+      padding: 12px;
+      margin: 12px 0;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 15px;
     }
 
     button {
-        margin-top: 20px;
-        width: 100%;
-        padding: 12px;
-        background: #00b4d8;
-        border: none;
-        border-radius: 8px;
-        color: white;
-        font-size: 16px;
-        cursor: pointer;
-        transition: 0.3s;
+      width: 100%;
+      padding: 12px;
+      background: #2563eb;
+      border: none;
+      color: white;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
     }
 
     button:hover {
-        background: #0096c7;
+      background: #1e40af;
     }
-</style>
+
+    .error-msg, .success-msg {
+      font-size: 14px;
+      margin-top: 10px;
+      display: none;
+    }
+
+    .error-msg { color: #dc2626; }
+    .success-msg { color: #16a34a; }
+  </style>
 </head>
 <body>
-<div class="login-container">
-    <h1>WELCOME TO D'AMOUR'S PAGE</h1>
-    <h2>Secure Login</h2>
-    <input type="password" id="password" placeholder="Enter Password">
-    <button onclick="login()">Login</button>
+
+<div class="login-container" id="loginPage">
+  <h2>Secure Login</h2>
+  <input type="password" id="password" placeholder="Enter Password" />
+  <button onclick="login()">Login</button>
+  <p class="error-msg" id="loginError">Incorrect password!</p>
+  <p class="success-msg" id="loginSuccess">Login successful!</p>
+</div>
+
+<div class="setup-container" id="setupPage" style="display:none;">
+  <h2>Set Up Password</h2>
+  <input type="password" id="newPassword" placeholder="Enter New Password" />
+  <input type="password" id="confirmPassword" placeholder="Confirm Password" />
+  <button onclick="setupPassword()">Save Password</button>
+  <p class="error-msg" id="setupError">Passwords do not match!</p>
+  <p class="success-msg" id="setupSuccess">Password saved successfully!</p>
 </div>
 
 <script>
-// Stored bcrypt hash for password "12345"
-const storedHash = "$2y$10$3qUk0YQxGLYgND0nUKSn2esNR4YqW0YV5kuJLK7p2pLBBh6rpCSgO";
+  async function hash(text) {
+    const msgUint8 = new TextEncoder().encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
 
-function checkPassword() {
-    const userPassword = document.getElementById("password").value;
+  // Check if password is set
+  if (!localStorage.getItem('hashedPassword')) {
+    document.getElementById('loginPage').style.display = 'none';
+    document.getElementById('setupPage').style.display = 'block';
+  }
 
-    // Compare entered password with hash
-    const isMatch = bcrypt.compareSync(userPassword, storedHash);
+  async function setupPassword() {
+    const pass = document.getElementById('newPassword').value;
+    const confirm = document.getElementById('confirmPassword').value;
 
-    if (isMatch) {
-        alert("Login successful!");
-        window.location.href = "dashboard.html";  
-    } else {
-        alert("Incorrect password!");
+    if (pass !== confirm || pass.length === 0) {
+      document.getElementById('setupError').style.display = 'block';
+      document.getElementById('setupSuccess').style.display = 'none';
+      return;
     }
-}
-    <button onclick="checkPassword()">Login</button>
 
+    const hashed = await hash(pass);
+    localStorage.setItem('hashedPassword', hashed);
+    document.getElementById('setupError').style.display = 'none';
+    document.getElementById('setupSuccess').style.display = 'block';
 
-}
+    setTimeout(()=>{
+      document.getElementById('setupPage').style.display = 'none';
+      document.getElementById('loginPage').style.display = 'block';
+    }, 1500);
+  }
+
+  async function login() {
+    const inputPass = document.getElementById('password').value;
+    const hashedInput = await hash(inputPass);
+    const storedHash = localStorage.getItem('hashedPassword');
+
+    if (hashedInput === storedHash) {
+      document.getElementById('loginError').style.display = 'none';
+      document.getElementById('loginSuccess').style.display = 'block';
+      setTimeout(()=>{ window.location.href = 'dashboard.html'; }, 1000);
+    } else {
+      document.getElementById('loginError').style.display = 'block';
+      document.getElementById('loginSuccess').style.display = 'none';
+    }
+  }
 </script>
+
 </body>
 </html>
-
